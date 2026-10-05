@@ -1,0 +1,20 @@
+{
+  "$comment": "MCP manifest. The transport is JSON-RPC 2.0 over HTTP POST, matching what /api/mcp actually speaks. Copy this into a client's MCP configuration to let an agent call the frost tools.",
+  "mcpServers": {
+    "frostwatch": {
+      "type": "http",
+      "url": "https://frostwatch.vercel.app/api/mcp",
+      "transport": "jsonrpc-2.0",
+      "methods": ["initialize", "tools/list", "tools/call"],
+      "notes": "Send {jsonrpc:'2.0', id, method, params} as a JSON POST body. Mutating tools are scoped to the caller's anonymous session cookie, so include the session cookie if you want to read back what you created."
+    }
+  },
+  "tools": [
+    { "name": "list_blocks", "kind": "read" },
+    { "name": "list_sheets", "kind": "read" },
+    { "name": "assess_frost_risk", "kind": "analysis" },
+    { "name": "create_sheet", "kind": "mutating", "idempotent": true },
+    { "name": "update_sheet", "kind": "mutating" },
+    { "name": "replay_sheet", "kind": "read" }
+  ]
+}

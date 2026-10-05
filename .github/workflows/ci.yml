@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      - name: No committed secrets
+        run: |
+          if git ls-files | grep -E '^\.env$' ; then
+            echo "A .env file is committed. Remove it."; exit 1
+          fi
+          if git grep -nE 'postgres(ql)?://[^ ]+:[^ ]+@' -- . ; then
+            echo "A database URL with credentials is committed."; exit 1
+          fi
+          echo "clean"
