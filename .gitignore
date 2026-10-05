@@ -43,3 +43,9 @@ next-env.d.ts
 # Local embedded SQLite database
 .data/
 
+.vercel
+.env*
+
+# Installed by the Vercel Neon marketplace integration, not product source
+.agents/
+skills-lock.json
