@@ -48,6 +48,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
 }
 
 interface OpenMeteoResponse {
+  utc_offset_seconds?: number
   hourly?: {
     time?: string[]
     temperature_2m?: (number | null)[]
@@ -115,8 +116,13 @@ export async function fetchForecast(block: Block, now = new Date()): Promise<For
 
   try {
     const raw = await withRetry(() => fetchJson<OpenMeteoResponse>(url, 8000))
+    const offsetSeconds = typeof raw.utc_offset_seconds === 'number' ? raw.utc_offset_seconds : 0
     const points = normaliseHours(raw)
-    if (points.length === 0) {
+    const localNow = new Date(now.getTime() + offsetSeconds * 1000)
+    localNow.setUTCMinutes(0, 0, 0)
+    const cutoff = localNow.toISOString().slice(0, 13) + ':00'
+    const future = points.filter((p) => p.at >= cutoff)
+    if (future.length === 0) {
       return fallbackBundle('The upstream forecast returned no usable hours. Showing the bundled sample.')
     }
     return {
@@ -125,7 +131,7 @@ export async function fetchForecast(block: Block, now = new Date()): Promise<For
       source: 'Open-Meteo',
       sourceUrl: url,
       attribution: ATTRIBUTION.forecast,
-      points,
+      points: future,
     }
   } catch (cause) {
     return fallbackBundle(`Upstream forecast unavailable (${String(cause)}). Showing the bundled sample.`)
