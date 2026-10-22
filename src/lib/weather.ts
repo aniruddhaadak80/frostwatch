@@ -48,6 +48,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
 }
 
 interface OpenMeteoResponse {
+  /** Seconds to add to UTC for the block's own local time (the `at` stamps are local). */
   utc_offset_seconds?: number
   hourly?: {
     time?: string[]
@@ -59,15 +60,30 @@ interface OpenMeteoResponse {
 }
 
 /**
+ * The first hour that has not happened yet, in the block's own local time.
+ *
+ * Open-Meteo returns the hourly series from 00:00 of the current day, so without
+ * this the forecast carries up to a day of history into the risk assessment.
+ */
+export function currentLocalHour(now: Date, utcOffsetSeconds: number | undefined): string {
+  if (utcOffsetSeconds === undefined) return ''
+  return new Date(now.getTime() + utcOffsetSeconds * 1000).toISOString().slice(0, 13) + ':00'
+}
+
+/**
  * Normalised from the raw Open-Meteo payload. Nasty cases are dropped rather than coerced to
  * zero: a missing cloud_cover must not read as "clear sky", which would fabricate frost risk.
+ *
+ * Hours before `cutoff` are dropped as well: they have already happened and must not be
+ * scored as a forecast.
  */
-function normaliseHours(raw: OpenMeteoResponse): HourPoint[] {
+export function normaliseHours(raw: OpenMeteoResponse, cutoff = ''): HourPoint[] {
   const hourly = raw.hourly
   if (hourly?.time === undefined || hourly.temperature_2m === undefined) return []
   const points: HourPoint[] = []
   for (let i = 0; i < hourly.time.length; i += 1) {
     const at = hourly.time[i]!
+    if (cutoff !== '' && at < cutoff) continue
     const tempC = hourly.temperature_2m[i]
     if (tempC === null || tempC === undefined) continue
     const wind = hourly.wind_speed_10m?.[i]
@@ -116,13 +132,9 @@ export async function fetchForecast(block: Block, now = new Date()): Promise<For
 
   try {
     const raw = await withRetry(() => fetchJson<OpenMeteoResponse>(url, 8000))
-    const offsetSeconds = typeof raw.utc_offset_seconds === 'number' ? raw.utc_offset_seconds : 0
-    const points = normaliseHours(raw)
-    const localNow = new Date(now.getTime() + offsetSeconds * 1000)
-    localNow.setUTCMinutes(0, 0, 0)
-    const cutoff = localNow.toISOString().slice(0, 13) + ':00'
-    const future = points.filter((p) => p.at >= cutoff)
-    if (future.length === 0) {
+    const cutoff = currentLocalHour(now, raw.utc_offset_seconds)
+    const points = normaliseHours(raw, cutoff)
+    if (points.length === 0) {
       return fallbackBundle('The upstream forecast returned no usable hours. Showing the bundled sample.')
     }
     return {
@@ -131,7 +143,7 @@ export async function fetchForecast(block: Block, now = new Date()): Promise<For
       source: 'Open-Meteo',
       sourceUrl: url,
       attribution: ATTRIBUTION.forecast,
-      points: future,
+      points,
     }
   } catch (cause) {
     return fallbackBundle(`Upstream forecast unavailable (${String(cause)}). Showing the bundled sample.`)
